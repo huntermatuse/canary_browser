@@ -1,5 +1,7 @@
 import argparse
 import birdsong
+import csv
+from datetime import datetime, timedelta
 
 class Canary_Browser:
     def __init__(self, canary_server: str, canary_username: str = None, canary_password: str = None):
@@ -20,12 +22,36 @@ class Canary_Browser:
         with birdsong.CanaryView(host=self.canary_server, username=self.canary_username, password=self.canary_password) as view:
             return list(view.browseTags(search=search, deep=True))
 
+    def download_tag_data(self, tag: str, start_date: datetime, end_date: datetime) -> list:
+        with birdsong.CanaryView(host=self.canary_server, username=self.canary_username, password=self.canary_password) as view:
+            data = list(view.getTagData(tags=tag, start=start_date, end=end_date))
+            return [(item.timestamp, item.value) for item in data]
+
+    def export_tag_list(self, filename: str):
+        with birdsong.CanaryView(host=self.canary_server, username=self.canary_username, password=self.canary_password) as view:
+            tags = list(view.browseTags(deep=True))
+            with open(filename, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Tag'])
+                for tag in tags:
+                    writer.writerow([tag])
+        print(f"Tag list exported to {filename}")
+
 def display_nodes(nodes):
     for idx, node in enumerate(nodes):
         print(f"[{idx}] {node}")
     print("\n[999] Exit")
     print("[998] Back One Node")
     print("[997] Start Over")
+
+def export_to_csv(data, filename):
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Tag', 'Timestamp', 'Value'])  # Header
+        for tag, values in data.items():
+            for timestamp, value in values:
+                writer.writerow([tag, timestamp, value])
+    print(f"Data exported to {filename}")
 
 def main():
     parser = argparse.ArgumentParser(description='CLI tool for browsing Canary nodes')
@@ -45,7 +71,10 @@ def main():
         print("1. Explore the tag structure")
         print("2. Get tag data")
         print("3. Search tags")
-        print("4. Exit")
+        print("4. Download tag data")
+        print("5. Export tag list")
+        print("6. Download data for multiple tags")
+        print("7. Exit")
 
         choice = input("Select an option: ")
 
@@ -57,7 +86,7 @@ def main():
                 try:
                     choice = int(choice)
                     if choice == 999:
-                        return
+                        break
                     elif choice == 998:  # Back one node
                         if path_history:
                             current_path = path_history.pop()
@@ -96,6 +125,59 @@ def main():
             print(f"Tags found for search '{search}': {tags}")
 
         elif choice == '4':
+            tag = input("Enter the tag to download data for: ")
+            date_range = input("Enter 'week' for last week's data, or 'custom' for a custom date range: ")
+
+            if date_range.lower() == 'week':
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=7)
+            elif date_range.lower() == 'custom':
+                start_date = input("Enter start date (YYYY-MM-DD): ")
+                end_date = input("Enter end date (YYYY-MM-DD): ")
+                start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                end_date = datetime.strptime(end_date, "%Y-%m-%d")
+            else:
+                print("Invalid input. Please try again.")
+                continue
+
+            tag_data = browser.download_tag_data(tag=tag, start_date=start_date, end_date=end_date)
+            filename = f"{tag.replace('.', '_')}_{start_date.date()}_{end_date.date()}.csv"
+            export_to_csv({tag: tag_data}, filename)
+
+        elif choice == '5':
+            filename = input("Enter the filename to export the tag list (e.g., tag_list.csv): ")
+            browser.export_tag_list(filename)
+
+        elif choice == '6':
+            tag_list_file = input("Enter the filename of the tag list CSV: ")
+            date_range = input("Enter 'week' for last week's data, or 'custom' for a custom date range: ")
+
+            if date_range.lower() == 'week':
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=7)
+            elif date_range.lower() == 'custom':
+                start_date = input("Enter start date (YYYY-MM-DD): ")
+                end_date = input("Enter end date (YYYY-MM-DD): ")
+                start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                end_date = datetime.strptime(end_date, "%Y-%m-%d")
+            else:
+                print("Invalid input. Please try again.")
+                continue
+
+            all_tag_data = {}
+            with open(tag_list_file, 'r') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)  # Skip header
+                for row in reader:
+                    tag = row[0]
+                    print(f"Downloading data for tag: {tag}")
+                    tag_data = browser.download_tag_data(tag=tag, start_date=start_date, end_date=end_date)
+                    all_tag_data[tag] = tag_data
+
+            filename = f"multi_tag_data_{start_date.date()}_{end_date.date()}.csv"
+            export_to_csv(all_tag_data, filename)
+
+        elif choice == '7':
             break
 
         else:
